@@ -1,0 +1,4 @@
+requests==2.32.3
+environs==11.0.0
+python-telegram-bot==13.15
+redis==3.2.1
