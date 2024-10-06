@@ -1,5 +1,4 @@
 import requests
-from pprint import pprint
 
 from environs import Env
 import redis
@@ -9,31 +8,27 @@ from telegram.ext import CallbackQueryHandler, CommandHandler, MessageHandler
 
 
 def start(update, context):
+    print('start')
     products = context.bot_data['products']
     keyboard = [[InlineKeyboardButton(product['title'], callback_data=int(product['id']))] for product in products]
     reply_markup = InlineKeyboardMarkup(keyboard)
     update.message.reply_text(text='Привет!', reply_markup=reply_markup)
+    return 'HANDLE_MENU'
 
 
-def button(update: Update, context: CallbackContext) -> None:
+def handle_menu(update: Update, context: CallbackContext) -> str:
     query = update.callback_query
     query.answer()
-    query.edit_message_text(text=f"Selected option: {query.data}")
+    product_id = int(query.data)
+    products = context.bot_data['products']
+    selected_product = next((product for product in products if product['id'] == product_id), None)
+    if selected_product:
+        query.edit_message_text(text=f"{selected_product['title']} ({selected_product['price']} руб. за кг)"
+                                     f"\n\n{selected_product['description']}")
+    return 'START'
 
 
 def handle_users_reply(update, context):
-    """
-    Функция, которая запускается при любом сообщении от пользователя и решает как его обработать.
-    Эта функция запускается в ответ на эти действия пользователя:
-        * Нажатие на inline-кнопку в боте
-        * Отправка сообщения боту
-        * Отправка команды боту
-    Она получает стейт пользователя из базы данных и запускает соответствующую функцию-обработчик (хэндлер).
-    Функция-обработчик возвращает следующее состояние, которое записывается в базу данных.
-    Если пользователь только начал пользоваться ботом, Telegram форсит его написать "/start",
-    поэтому по этой фразе выставляется стартовое состояние.
-    Если пользователь захочет начать общение с ботом заново, он также может воспользоваться этой командой.
-    """
     db = context.bot_data['redis_connection']
     if update.message:
         user_reply = update.message.text
@@ -50,13 +45,14 @@ def handle_users_reply(update, context):
 
     states_functions = {
         'START': start,
-        'BUTTON': button
+        'HANDLE_MENU': handle_menu
     }
     state_handler = states_functions[user_state]
-
+    print(state_handler)
     try:
         next_state = state_handler(update, context)
         db.set(chat_id, next_state)
+        print(f"State updated to {next_state}")
     except Exception as err:
         print(err)
 
@@ -82,12 +78,16 @@ def main():
     redis_connection = redis.Redis(host=redis_host, port=redis_port,
                                    password=redis_password, db=0)
     dispatcher.bot_data['redis_connection'] = redis_connection
-    dispatcher.add_handler(CallbackQueryHandler(button))
-    dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
-    dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
+
     dispatcher.add_handler(CommandHandler('start', handle_users_reply))
+    dispatcher.add_handler(MessageHandler(Filters.text, handle_users_reply))
+    dispatcher.add_handler(CallbackQueryHandler(handle_users_reply))
     updater.start_polling()
     updater.idle()
+
+
+if __name__ == '__main__':
+    main()
 
 
 
